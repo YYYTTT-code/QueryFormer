@@ -8,6 +8,7 @@ from collections import deque
 from .database_util import formatFilter, formatJoin, TreeNode, filterDict2Hist
 from .database_util import *
 
+# 训练时的加载数据集 类
 class PlanTreeDataset(Dataset):
     def __init__(self, json_df : pd.DataFrame, train : pd.DataFrame, encoding, hist_file, card_norm, cost_norm, to_predict, table_sample):
 
@@ -18,10 +19,12 @@ class PlanTreeDataset(Dataset):
         self.length = len(json_df)
         # train = train.loc[json_df['id']]
         
+        # nodes =[由json形式表示的plan]，和我们index selection用的一样
         nodes = [json.loads(plan)['Plan'] for plan in json_df['json']]
         self.cards = [node['Actual Rows'] for node in nodes]
         self.costs = [json.loads(plan)['Execution Time'] for plan in json_df['json']]
         
+        # 将label进行正则化
         self.card_labels = torch.from_numpy(card_norm.normalize_labels(self.cards))
         self.cost_labels = torch.from_numpy(cost_norm.normalize_labels(self.costs))
         
@@ -45,7 +48,10 @@ class PlanTreeDataset(Dataset):
         self.collated_dicts = [self.js_node2dict(i,node) for i,node in zip(idxs, nodes)]
 
     def js_node2dict(self, idx, node):
+        # 遍历一遍计划树，解析出树结构，并且以TreeNode形式，组合起来，保留树结构
         treeNode = self.traversePlan(node, idx, self.encoding)
+        
+        # 将树进行遍历成列表的形式，解析tree transformer所需的相邻表、高度表等信息
         _dict = self.node2dict(treeNode)
         collated_dict = self.pre_collate(_dict)
         
@@ -66,7 +72,7 @@ class PlanTreeDataset(Dataset):
       
     ## pre-process first half of old collator
     def pre_collate(self, the_dict, max_node = 30, rel_pos_max = 20):
-
+        # 将该树的features，补到至少30个节点长
         x = pad_2d_unsqueeze(the_dict['features'], max_node)
         N = len(the_dict['features'])
         attn_bias = torch.zeros([N+1,N+1], dtype=torch.float)
@@ -84,7 +90,7 @@ class PlanTreeDataset(Dataset):
         
         rel_pos = torch.from_numpy((shortest_path_result)).long()
 
-        
+        # 猜测：是将两个节点间距离大于rel_pos_max的，就设置为负无穷，当做没链接
         attn_bias[1:, 1:][rel_pos >= rel_pos_max] = float('-inf')
         
         attn_bias = pad_attn_bias_unsqueeze(attn_bias, max_node + 1)
@@ -101,7 +107,7 @@ class PlanTreeDataset(Dataset):
 
 
     def node2dict(self, treeNode):
-
+        # 将树进行遍历成列表的形式，解析tree transformer所需的相邻表、高度表等信息
         adj_list, num_child, features = self.topo_sort(treeNode)
         heights = self.calculate_height(adj_list, len(features))
 
@@ -133,8 +139,10 @@ class PlanTreeDataset(Dataset):
         
         return adj_list, num_child, features
     
+    # 跟我们一样，也是从json，用字符串解析出相关信息
     def traversePlan(self, plan, idx, encoding): # bfs accumulate plan
-
+        # 首先将nodeType进行encoding
+        # encoding是比我们用的one-hot更好的表示方法，不仅短，还带有意义
         nodeType = plan['Node Type']
         typeId = encoding.encode_type(nodeType)
         card = None #plan['Actual Rows']
@@ -186,7 +194,7 @@ class PlanTreeDataset(Dataset):
         return node_order 
 
 
-
+# 生成该节点的特征即向量
 def node2feature(node, encoding, hist_file, table_sample):
     # type, join, filter123, mask123
     # 1, 1, 3x3 (9), 3
