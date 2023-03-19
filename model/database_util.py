@@ -4,6 +4,7 @@ import csv
 import torch
 
 ## bfs shld be enough
+# 节点不可达时，设置为60
 def floyd_warshall_rewrite(adjacency_matrix):
     (nrows, ncols) = adjacency_matrix.shape
     assert nrows == ncols
@@ -159,12 +160,14 @@ def pad_1d_unsqueeze(x, padlen):
         x = new_x
     return x.unsqueeze(0)
 
-
+# 将该树的features，补到至少padlen个节点长，
+# 补位的值为1，且最后又升维了一下，维度(节点长，节点feature)变为(1，节点长，节点feature)
 def pad_2d_unsqueeze(x, padlen):
     # dont know why add 1, comment out first
 #    x = x + 1 # pad id = 0
     xlen, xdim = x.size()
     if xlen < padlen:
+        # torch的zeros的变体
         new_x = x.new_zeros([padlen, xdim], dtype=x.dtype) + 1
         new_x[:xlen, :] = x
         x = new_x
@@ -201,6 +204,7 @@ def collator(small_set):
     
     return Batch(attn_bias, rel_pos, heights, x), y
 
+# 通过filterDict将直方图进行编码
 def filterDict2Hist(hist_file, filterDict, encoding):
     buckets = len(hist_file['bins'][0]) 
     empty = np.zeros(buckets - 1)
@@ -246,7 +250,7 @@ def filterDict2Hist(hist_file, filterDict, encoding):
 
 
 def formatJoin(json_node):
-   
+    # 对于循环嵌套连接没有解析啊
     join = None
     if 'Hash Cond' in json_node:
         join = json_node['Hash Cond']
@@ -291,6 +295,7 @@ def formatFilter(plan):
     
     return filters, alias
 
+# 模型中关于Node进行encoding的部分，只是将column、table等转换成类别向量而已，不需要训练，只是存起来
 class Encoding:
     def __init__(self, column_min_max_vals, 
                  col2idx, op2idx={'>':0, '=':1, '<':2, 'NA':3}):
@@ -320,6 +325,7 @@ class Encoding:
             val_norm = (val-mini) / (maxi-mini)
         return val_norm
     
+    # 这里并没有显示的如何将filters进行编码，而是将多个条件转换成res = {'colId':[],'opId': [],'val': []}了，应该有后续的处理
     def encode_filters(self, filters=[], alias=None): 
         ## filters: list of dict 
 

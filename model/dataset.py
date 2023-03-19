@@ -43,7 +43,7 @@ class PlanTreeDataset(Dataset):
             
         idxs = list(json_df['id'])
         
-    
+        # 解析查询计划树
         self.treeNodes = [] ## for mem collection
         self.collated_dicts = [self.js_node2dict(i,node) for i,node in zip(idxs, nodes)]
 
@@ -71,10 +71,14 @@ class PlanTreeDataset(Dataset):
         return self.dicts[idx], (self.cost_labels[idx], self.card_labels[idx])
       
     ## pre-process first half of old collator
+    # 将plan的node pad到最长数目30，如果不在这补，就得在model的forward处补，可能是因为attention-bias不太好补吧
     def pre_collate(self, the_dict, max_node = 30, rel_pos_max = 20):
+        # print(the_dict['features'])
         # 将该树的features，补到至少30个节点长
         x = pad_2d_unsqueeze(the_dict['features'], max_node)
+        # print(x)
         N = len(the_dict['features'])
+        # attn_bias维度，相比于节点数+1，应该是为了Supernode
         attn_bias = torch.zeros([N+1,N+1], dtype=torch.float)
         
         edge_index = the_dict['adjacency_list'].t()
@@ -89,7 +93,8 @@ class PlanTreeDataset(Dataset):
             shortest_path_result = floyd_warshall_rewrite(adj.numpy())
         
         rel_pos = torch.from_numpy((shortest_path_result)).long()
-
+        # print(rel_pos.shape) # torch.Size([5, 5])
+        # print(rel_pos)
         # 猜测：是将两个节点间距离大于rel_pos_max的，就设置为负无穷，当做没链接
         attn_bias[1:, 1:][rel_pos >= rel_pos_max] = float('-inf')
         
@@ -97,7 +102,12 @@ class PlanTreeDataset(Dataset):
         rel_pos = pad_rel_pos_unsqueeze(rel_pos, max_node)
 
         heights = pad_1d_unsqueeze(the_dict['heights'], max_node)
+        # 此时的attn_bias除了0就是-inf
+        # print(attn_bias)
         
+        # rel_pos给出的是任意两个节点间的最短路径，不可达设置为60+1，可达时设置为距离+1，对于不存在的点设置为0
+        # print(rel_pos.shape) # torch.Size([1, 30, 30])
+        # print(rel_pos)
         return {
             'x' : x,
             'attn_bias': attn_bias,
@@ -196,6 +206,8 @@ class PlanTreeDataset(Dataset):
 
 # 生成该节点的特征即向量
 def node2feature(node, encoding, hist_file, table_sample):
+    # 这里将filter进行的编码，由3-num_filter可知，本方法假设filter的长度不会超过3个，原来如此，也很妥协的方法
+
     # type, join, filter123, mask123
     # 1, 1, 3x3 (9), 3
     # TODO: add sample (or so-called table)

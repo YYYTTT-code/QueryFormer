@@ -205,8 +205,10 @@ class QueryFormer(nn.Module):
         tree_attn_bias = attn_bias.clone()
         tree_attn_bias = tree_attn_bias.unsqueeze(1).repeat(1, self.head_size, 1, 1) 
         
-        # permute函数是用来交tensor维度的函数
+        
         # rel pos
+        # tree_attn_bias一开始放的是0，补位则是-inf，rel pos则是存的任意两点间的距离，经过rel_pos_encoder，将距离编码后，放到tree_attn_bias中
+        # permute函数是用来交tensor维度的函数
         rel_pos_bias = self.rel_pos_encoder(rel_pos).permute(0, 3, 1, 2) # [n_batch, n_node, n_node, n_head] -> [n_batch, n_head, n_node, n_node]
         tree_attn_bias[:, :, 1:, 1:] = tree_attn_bias[:, :, 1:, 1:] + rel_pos_bias
 
